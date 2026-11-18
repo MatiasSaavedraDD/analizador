@@ -1959,6 +1959,23 @@ html[data-theme="light"] .access-public {
 }
 
 .header-actions{flex-wrap:wrap;gap:8px}.frequency-workspace{grid-template-columns:1fr!important}
+.rf{padding:18px;display:grid;gap:18px}.rf-gauges{display:flex;justify-content:center;gap:clamp(10px,3vw,36px);flex-wrap:wrap}
+.rf-gauge{position:relative;width:clamp(96px,22vw,150px);text-align:center}.rf-gauge svg{width:100%;display:block}
+.rf-track{fill:none;stroke:var(--line);stroke-width:9}.rf-arc{fill:none;stroke-width:9;stroke-dasharray:0 302;transition:stroke-dasharray .25s}
+.rf-gauge[data-rf=up] .rf-arc,.rf-gauge[data-rf=up] .rf-icon{stroke:var(--green);color:var(--green)}
+.rf-gauge[data-rf=flat] .rf-arc{stroke:var(--muted)}.rf-gauge[data-rf=down] .rf-arc{stroke:var(--rose)}.rf-gauge[data-rf=down] .rf-icon{color:var(--rose)}
+.rf-gauge[data-rf=up] .rf-icon{stroke:none}.rf-gauge[data-rf=flat] .rf-icon{color:var(--muted)}
+.rf-center{position:absolute;top:0;left:0;right:0;aspect-ratio:1;display:grid;place-content:center;gap:2px}
+.rf-center b{font:700 clamp(15px,2.6vw,22px) var(--mono)}.rf-icon{font-size:12px}
+.rf-gauge em{display:block;margin-top:6px;font:600 12px var(--body);font-style:normal;color:var(--muted)}
+.rf-signal{text-align:center}.rf-call{font:800 clamp(34px,7vw,56px)/1 var(--display);letter-spacing:.06em;color:var(--muted)}
+.rf-call[data-call=rise]{color:var(--green)}.rf-call[data-call=fall]{color:var(--rose)}
+.rf-hint{margin-top:6px;color:var(--muted);font:12px var(--mono)}
+.rf-foot{display:flex;gap:16px;align-items:center;justify-content:space-between;flex-wrap:wrap;border-top:1px solid var(--line);padding-top:14px}
+.rf-thr{display:grid;gap:4px;font:11px var(--mono);color:var(--muted)}.rf-thr .number-field{width:110px}
+.rf-moves{display:flex;gap:3px;flex-wrap:wrap}.rf-moves i{font-style:normal;font-size:10px;width:18px;height:18px;display:grid;place-items:center;border-radius:4px;border:1px solid var(--line)}
+.rf-moves i.up{color:var(--green)}.rf-moves i.down{color:var(--rose)}.rf-moves i.flat{color:var(--muted)}
+
 </style>
 </head>
 <body class="product-ui access-granted access-public" data-pro="false" data-mesh-percentages="true">
@@ -1970,6 +1987,7 @@ html[data-theme="light"] .access-public {
     <button class="button button-primary" data-add="mesh" type="button">+ Mesh</button>
     <button class="button" data-add="bubble" type="button">+ Bubble</button>
     <button class="button" data-add="frequency" type="button">+ Frequency</button>
+    <button class="button" data-add="risefall" type="button">+ Rise/Fall</button>
   </div>
 </header>
 <main class="board" id="board">
@@ -2309,7 +2327,8 @@ html[data-theme="light"] .access-public {
           <g class="bubble-trade-routes" data-bubble-trades pointer-events="none"></g>
         </svg>
         <div class="bubble-footer"><div><span>Recent · newest first</span><div class="recent-digit-ribbon" data-bubble-recent></div></div><div class="bubble-extremes"><span>Most <b data-bubble-hot>—</b></span><span>Least <b data-bubble-cold>—</b></span></div></div>
-      </section>${manualTradeMarkup(widget)}`;
+      </section>
+      <div class="chain-strip bubble-pairs"><span>Last 2 digits · current path</span><div data-bubble-current></div><span>Most repeated paths · 2 digits</span><div data-bubble-pairs></div></div>${manualTradeMarkup(widget)}`;
     body.querySelectorAll("[data-bubble-mode]").forEach(button => button.addEventListener("click", () => {
       widget.visual.mode = button.dataset.bubbleMode;
       body.querySelectorAll("[data-bubble-mode]").forEach(item => item.classList.toggle("active", item === button));
@@ -2456,8 +2475,15 @@ html[data-theme="light"] .access-public {
     body.querySelector("[data-bubble-hot]").textContent = digits.length ? `D${hotDigits}` : "—";
     body.querySelector("[data-bubble-cold]").textContent = digits.length ? `D${coldDigits}` : "—";
     body.querySelector("[data-bubble-recent]").innerHTML = sample.includedTicks.slice(0, 22).map((tick, index) => `<i class="${index === 0 ? "current" : ""}">${tick.digit}</i>`).join("") || "<span>Waiting for the first tick…</span>";
-    refreshManualPanel(widget);
-    evaluateSuggestionTrade(widget);
+    const seq = digits.slice().reverse(), pairCount = new Map();
+    for (let i = 0; i < seq.length - 1; i += 1) { const k = `${seq[i]}-${seq[i + 1]}`; pairCount.set(k, (pairCount.get(k) || 0) + 1); }
+    const chip = (a, b2, n, hot) => `<i${hot ? ' style="border-color:var(--accent)"' : ''}><span>${a}</span><b>→</b><span>${b2}</span>${n ? `<em>×${n}</em>` : ''}</i>`;
+    const pair = seq.slice(-2), pairKey = pair.join('-');
+    body.querySelector('[data-bubble-current]').innerHTML = pair.length === 2
+      ? chip(pair[0], pair[1], pairCount.get(pairKey), true)
+      : '<em>Waiting for 2 ticks…</em>';
+    const topPairs = [...pairCount.entries()].filter(([, n]) => n > 1).sort((x, y) => y[1] - x[1]).slice(0, 8);
+    body.querySelector('[data-bubble-pairs]').innerHTML = topPairs.map(([k, n]) => chip(k[0], k[2], n, k === pairKey)).join('') || '<em>No repeating 2-digit paths yet.</em>';
   }
 
   function buildFrequencyBody(widget) {
@@ -2623,7 +2649,7 @@ html[data-theme="light"] .access-public {
     ws.onerror = () => setStatus("Error", "error");
   }
   function save() {
-    try { localStorage.setItem("meshWidgets", JSON.stringify([...state.widgets.values()].map(w => ({ type: w.type, symbol: w.symbol, window: w.window, chainLength: w.visual.chainLength, mutedDigits: [...w.mutedDigits] })))); } catch (_) {}
+    try { localStorage.setItem("meshWidgets", JSON.stringify([...state.widgets.values()].map(w => ({ type: w.type, symbol: w.symbol, window: w.window, chainLength: w.visual.chainLength, threshold: w.visual.threshold, mutedDigits: [...w.mutedDigits] })))); } catch (_) {}
   }
   function updateLayout() {
     const n = state.widgets.size;
@@ -2634,9 +2660,49 @@ html[data-theme="light"] .access-public {
   const TYPES = {
     mesh: { p: "M", title: "Transition Mesh", sub: "Directed next-digit probability paths", win: 200, min: 10 },
     bubble: { p: "B", title: "Bubble Field", sub: "Frequency-weighted digit cluster", win: 100, min: 10 },
-    frequency: { p: "F", title: "Digit Frequency", sub: "Newest tick backward · muted digits excluded", win: 200, min: 1 }
+    frequency: { p: "F", title: "Digit Frequency", sub: "Newest tick backward · muted digits excluded", win: 200, min: 1 },
+    risefall: { p: "R", title: "Rise / Fall", sub: "Up · Flat · Down over the last N ticks", win: 30, min: 2 }
   };
-  function updateAny(w) { (w.type === "mesh" ? updateMeshWidget : w.type === "bubble" ? updateBubbleWidget : updateFrequencyWidget)(w); }
+  function buildRiseFallBody(widget) {
+    const body = widget.node.querySelector(".widget-body");
+    const gauge = (k, label, icon) => `<div class="rf-gauge" data-rf="${k}"><svg viewBox="0 0 120 120" aria-hidden="true"><circle class="rf-track" cx="60" cy="60" r="48"/><circle class="rf-arc" cx="60" cy="60" r="48" transform="rotate(-90 60 60)"/></svg><div class="rf-center"><b data-rf-pct>0.0%</b><span class="rf-icon">${icon}</span></div><em>${label}</em></div>`;
+    body.innerHTML = `<div class="rf"><div class="rf-gauges">${gauge("up", "Up", "▲")}${gauge("flat", "Flat", "—")}${gauge("down", "Down", "▼")}</div>
+      <div class="rf-signal"><div class="rf-call" data-rf-call>WAIT</div><div class="rf-hint" data-rf-hint></div></div>
+      <div class="rf-foot"><label class="rf-thr"><span>Signal threshold (%)</span><div class="number-field"><input class="rf-threshold" type="number" min="50" max="99" step="1" value="${widget.visual.threshold}"></div></label><div class="rf-moves" data-rf-moves></div></div></div>`;
+    const input = body.querySelector(".rf-threshold");
+    input.addEventListener("input", () => {
+      const n = Math.round(Number(input.value));
+      if (Number.isFinite(n) && n >= 50 && n <= 99) { widget.visual.threshold = n; updateRiseFallWidget(widget); }
+    });
+    input.addEventListener("change", () => { input.value = String(widget.visual.threshold); save(); });
+  }
+  function updateRiseFallWidget(widget) {
+    const body = widget.node.querySelector(".widget-body");
+    if (!body.querySelector(".rf")) return;
+    const buffer = getBuffer(widget.symbol), pip = Number.isInteger(buffer.pipSize) ? buffer.pipSize : 2;
+    const prices = buffer.ticks.slice(-(widget.window + 1)).map(t => Number(t.quote.toFixed(pip)));
+    const moves = []; let up = 0, down = 0, flat = 0;
+    for (let i = 1; i < prices.length; i += 1) {
+      const d = prices[i] > prices[i - 1] ? "up" : prices[i] < prices[i - 1] ? "down" : "flat";
+      moves.push(d); if (d === "up") up += 1; else if (d === "down") down += 1; else flat += 1;
+    }
+    const n = moves.length, thr = widget.visual.threshold, C = 2 * Math.PI * 48;
+    const vals = { up: n ? up / n * 100 : 0, flat: n ? flat / n * 100 : 0, down: n ? down / n * 100 : 0 };
+    for (const k of ["up", "flat", "down"]) {
+      const g = body.querySelector(`[data-rf="${k}"]`);
+      g.querySelector(".rf-arc").style.strokeDasharray = `${C * vals[k] / 100} ${C}`;
+      g.querySelector("[data-rf-pct]").textContent = `${vals[k].toFixed(1)}%`;
+    }
+    let call = "WAIT", hint = `Up or Down needs ≥ ${thr}% · now ${vals.up.toFixed(1)}% / ${vals.down.toFixed(1)}%`;
+    if (n < widget.window) hint = `Collecting ticks… ${n} / ${widget.window} moves`;
+    else if (vals.up >= thr && vals.up > vals.down) { call = "RISE"; hint = `Up ${vals.up.toFixed(1)}% ≥ ${thr}% threshold`; }
+    else if (vals.down >= thr && vals.down > vals.up) { call = "FALL"; hint = `Down ${vals.down.toFixed(1)}% ≥ ${thr}% threshold`; }
+    const callEl = body.querySelector("[data-rf-call]"); callEl.textContent = call; callEl.dataset.call = call.toLowerCase();
+    body.querySelector("[data-rf-hint]").textContent = hint;
+    body.querySelector("[data-rf-moves]").innerHTML = moves.slice(-24).map(m => `<i class="${m}">${m === "up" ? "▲" : m === "down" ? "▼" : "—"}</i>`).join("");
+    const st = widget.node.querySelector(".sample-state span"); if (st) st.textContent = `${n} moves analyzed`;
+  }
+  function updateAny(w) { (w.type === "mesh" ? updateMeshWidget : w.type === "bubble" ? updateBubbleWidget : w.type === "risefall" ? updateRiseFallWidget : updateFrequencyWidget)(w); }
   function addWidget(config = {}) {
     const type = TYPES[config.type] ? config.type : "mesh", T = TYPES[type];
     const id = `widget-${++state.widgetCounter}`;
@@ -2644,7 +2710,7 @@ html[data-theme="light"] .access-public {
     const symbol = config.symbol || "1HZ100V";
     const win = Math.min(2000, Math.max(T.min, Number(config.window) || T.win));
     node.dataset.id = id;
-    node.classList.add("wide", ...(type === "frequency" ? ["frequency-widget"] : ["visual-widget", `${type}-widget`]));
+    node.classList.add("wide", ...(type === "mesh" || type === "bubble" ? ["visual-widget", `${type}-widget`] : [`${type}-widget`]));
     node.querySelector(".widget-index").textContent = `${T.p}${state.widgetCounter}`;
     node.querySelector(".widget-title").textContent = T.title;
     node.querySelector(".widget-subtitle").textContent = T.sub;
@@ -2652,10 +2718,10 @@ html[data-theme="light"] .access-public {
     node.querySelector(".window-input").value = String(win);
     const widget = { id, type, symbol, window: win, node, chart: null, mutedDigits: new Set(config.mutedDigits || []),
       trade: { meshStrategy: "momentum", meshBatch: null, inFlight: false, openContractId: null, armed: false, startRequested: false, status: "" },
-      visual: type === "bubble" ? { mode: "free", barrier: 4 } : { selectedDigit: null, chainLength: config.chainLength || 2 } };
+      visual: type === "risefall" ? { threshold: Math.min(99, Math.max(50, Number(config.threshold) || 60)) } : type === "bubble" ? { mode: "free", barrier: 4 } : { selectedDigit: null, chainLength: config.chainLength || 2 } };
     state.widgets.set(id, widget);
     el.grid.append(node);
-    (type === "mesh" ? buildMeshBody : type === "bubble" ? buildBubbleBody : buildFrequencyBody)(widget);
+    (type === "mesh" ? buildMeshBody : type === "bubble" ? buildBubbleBody : type === "risefall" ? buildRiseFallBody : buildFrequencyBody)(widget);
     if (type === "mesh") node.querySelectorAll("[data-chain-length]").forEach(b => b.classList.toggle("active", Number(b.dataset.chainLength) === widget.visual.chainLength));
     const ro = new ResizeObserver(() => requestAnimationFrame(() => { if (node.isConnected) updateAny(widget); }));
     ro.observe(node);
